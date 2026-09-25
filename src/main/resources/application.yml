@@ -15,6 +15,13 @@ spring:
 app:
   jobs:
     default-max-attempts: 5
+  worker:
+    enabled: ${WORKER_ENABLED:true}
+    concurrency: ${WORKER_CONCURRENCY:50}
+    poll-interval: 500ms
+    lease: 5m
+    retry-base-delay: 10s
+    shutdown-timeout: 30s
 
 management:
   endpoints:
