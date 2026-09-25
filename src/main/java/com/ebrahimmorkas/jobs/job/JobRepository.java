@@ -8,6 +8,7 @@ import org.springframework.stereotype.Repository;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Timestamp;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.EnumMap;
 import java.util.List;
@@ -84,6 +85,67 @@ public class JobRepository {
                                         updated_at = now(), completed_at = null
                         where id = :id and status = 'DEAD'""")
                 .param("id", id)
+                .update() == 1;
+    }
+
+    /**
+     * Atomically claims up to {@code limit} due jobs for this worker.
+     *
+     * <p>{@code FOR UPDATE SKIP LOCKED} is what makes many competing workers safe and fast: rows
+     * locked by another worker's in-flight claim are skipped instead of waited on, so workers never
+     * block each other and a row can never be claimed twice. The claim also starts a lease and
+     * counts the attempt, all in one statement.
+     */
+    public List<Job> claim(String workerId, int limit, Duration lease) {
+        return jdbc.sql("""
+                        update jobs
+                           set status = 'RUNNING', locked_by = :workerId,
+                               locked_until = now() + make_interval(secs => :leaseSeconds),
+                               attempts = attempts + 1, updated_at = now()
+                         where id in (select id from jobs
+                                       where status = 'QUEUED' and run_at <= now()
+                                       order by priority desc, run_at, id
+                                       limit :limit
+                                       for update skip locked)
+                        returning *""")
+                .param("workerId", workerId)
+                .param("leaseSeconds", lease.toSeconds())
+                .param("limit", limit)
+                .query(JOB_ROW_MAPPER)
+                .list();
+    }
+
+    /**
+     * Completion is fenced on {@code locked_by}: if this worker's lease expired and the job was
+     * handed to someone else, the stale worker's update matches no row and changes nothing.
+     *
+     * @return false if this worker no longer owns the job
+     */
+    public boolean markSucceeded(long id, String workerId) {
+        return jdbc.sql("""
+                        update jobs set status = 'SUCCEEDED', locked_by = null, locked_until = null,
+                                        last_error = null, completed_at = now(), updated_at = now()
+                        where id = :id and locked_by = :workerId and status = 'RUNNING'""")
+                .param("id", id).param("workerId", workerId)
+                .update() == 1;
+    }
+
+    public boolean scheduleRetry(long id, String workerId, String error, Instant runAt) {
+        return jdbc.sql("""
+                        update jobs set status = 'QUEUED', locked_by = null, locked_until = null,
+                                        last_error = :error, run_at = :runAt, updated_at = now()
+                        where id = :id and locked_by = :workerId and status = 'RUNNING'""")
+                .param("id", id).param("workerId", workerId).param("error", error)
+                .param("runAt", Timestamp.from(runAt))
+                .update() == 1;
+    }
+
+    public boolean markDead(long id, String workerId, String error) {
+        return jdbc.sql("""
+                        update jobs set status = 'DEAD', locked_by = null, locked_until = null,
+                                        last_error = :error, completed_at = now(), updated_at = now()
+                        where id = :id and locked_by = :workerId and status = 'RUNNING'""")
+                .param("id", id).param("workerId", workerId).param("error", error)
                 .update() == 1;
     }
 
