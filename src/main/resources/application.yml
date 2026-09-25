@@ -21,6 +21,8 @@ app:
     poll-interval: 500ms
     lease: 5m
     retry-base-delay: 10s
+    retry-max-delay: 30m
+    reaper-interval: 30s
     shutdown-timeout: 30s
 
 management:

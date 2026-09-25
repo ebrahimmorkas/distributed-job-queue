@@ -11,7 +11,9 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.SmartLifecycle;
 
 import java.time.Clock;
+import java.time.Duration;
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Semaphore;
@@ -40,6 +42,8 @@ public class JobWorker implements SmartLifecycle {
     private volatile boolean running;
     private ExecutorService executor;
     private Thread poller;
+    private Thread leaseRenewer;
+    private final CountDownLatch stopSignal = new CountDownLatch(1);
 
     public JobWorker(String workerId, JobRepository jobRepository, JobHandlerRegistry handlerRegistry,
                      RetryPolicy retryPolicy, ObjectMapper objectMapper, WorkerProperties properties, Clock clock) {
@@ -58,6 +62,7 @@ public class JobWorker implements SmartLifecycle {
         executor = Executors.newVirtualThreadPerTaskExecutor();
         running = true;
         poller = Thread.ofVirtual().name("job-poller-" + workerId).start(this::pollLoop);
+        leaseRenewer = Thread.ofVirtual().name("lease-renewer-" + workerId).start(this::renewLoop);
         log.info("Worker {} started (concurrency {})", workerId, properties.concurrency());
     }
 
@@ -73,6 +78,27 @@ public class JobWorker implements SmartLifecycle {
             } catch (RuntimeException e) {
                 log.warn("Polling failed, backing off: {}", e.getMessage());
                 sleepQuietly();
+            }
+        }
+    }
+
+    /**
+     * Extends this worker's leases every third of the lease period, so a job may run far longer
+     * than one lease while the worker is alive, yet is recovered quickly once the worker dies.
+     */
+    private void renewLoop() {
+        Duration every = properties.lease().dividedBy(3);
+        while (true) {
+            try {
+                if (stopSignal.await(every.toMillis(), TimeUnit.MILLISECONDS)) {
+                    return;
+                }
+                jobRepository.renewLeases(workerId, properties.lease());
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return;
+            } catch (RuntimeException e) {
+                log.warn("Lease renewal failed: {}", e.getMessage());
             }
         }
     }
@@ -146,11 +172,22 @@ public class JobWorker implements SmartLifecycle {
             }
         }
         if (executor != null) {
+            // Keep renewing leases while in-flight jobs drain; stop renewing only afterwards
             executor.shutdown();
             try {
                 if (!executor.awaitTermination(properties.shutdownTimeout().toMillis(), TimeUnit.MILLISECONDS)) {
                     log.warn("Worker {} stopped with jobs still running; their leases will expire", workerId);
                 }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        }
+        // In-flight jobs have drained (or timed out): stop renewing. Signalled, never interrupted, for the
+        // same reason as the poller.
+        stopSignal.countDown();
+        if (leaseRenewer != null) {
+            try {
+                leaseRenewer.join(Duration.ofSeconds(5));
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
             }
