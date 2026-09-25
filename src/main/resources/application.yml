@@ -7,3 +7,21 @@ spring:
   threads:
     virtual:
       enabled: true
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/jobs_db}
+    username: ${DB_USERNAME:postgres}
+    password: ${DB_PASSWORD:postgres}
+
+app:
+  jobs:
+    default-max-attempts: 5
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
