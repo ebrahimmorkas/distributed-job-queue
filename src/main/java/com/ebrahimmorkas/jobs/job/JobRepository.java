@@ -149,6 +149,16 @@ public class JobRepository {
                 .update() == 1;
     }
 
+    /** Heartbeat: extends the lease of every job this worker is still running. */
+    public int renewLeases(String workerId, Duration lease) {
+        return jdbc.sql("""
+                        update jobs set locked_until = now() + make_interval(secs => :leaseSeconds)
+                        where locked_by = :workerId and status = 'RUNNING'""")
+                .param("workerId", workerId)
+                .param("leaseSeconds", lease.toSeconds())
+                .update();
+    }
+
     public Map<JobStatus, Long> countByStatus() {
         Map<JobStatus, Long> counts = new EnumMap<>(JobStatus.class);
         for (JobStatus status : JobStatus.values()) {

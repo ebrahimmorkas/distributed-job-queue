@@ -19,7 +19,7 @@ public class WorkerConfig {
 
     @Bean
     RetryPolicy retryPolicy(WorkerProperties properties) {
-        return RetryPolicy.fixed(properties.retryBaseDelay());
+        return new ExponentialBackoff(properties.retryBaseDelay(), properties.retryMaxDelay());
     }
 
     /** One worker per application instance; its id (host + random suffix) shows up in locked_by. */

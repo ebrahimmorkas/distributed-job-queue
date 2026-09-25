@@ -30,7 +30,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * Full application against a real PostgreSQL. The built-in worker is disabled so tests control
  * exactly which workers run (and how many compete) via {@link #startWorker}.
  */
-@SpringBootTest(properties = "app.worker.enabled=false")
+@SpringBootTest(properties = {"app.worker.enabled=false", "app.worker.reaper-interval=1h"})
 @AutoConfigureMockMvc
 @Import({TestcontainersConfiguration.class, TestJobHandlersConfiguration.class})
 public abstract class IntegrationTest {
@@ -60,8 +60,12 @@ public abstract class IntegrationTest {
     }
 
     protected JobWorker startWorker(String id, int concurrency) {
+        return startWorker(id, concurrency, Duration.ofMinutes(5));
+    }
+
+    protected JobWorker startWorker(String id, int concurrency, Duration lease) {
         WorkerProperties properties = new WorkerProperties(true, concurrency, Duration.ofMillis(50),
-                Duration.ofMinutes(5), Duration.ofMillis(100), Duration.ofSeconds(5));
+                lease, Duration.ofMillis(100), Duration.ofSeconds(1), Duration.ofSeconds(5));
         JobWorker worker = new JobWorker(id, jobRepository, handlerRegistry, RetryPolicy.fixed(Duration.ofMillis(100)),
                 objectMapper, properties, clock);
         worker.start();
