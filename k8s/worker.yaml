@@ -1,0 +1,102 @@
+# Workers: any number of replicas can poll the same queue safely (FOR UPDATE SKIP LOCKED).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: job-queue-worker
+  namespace: job-queue
+  labels:
+    app: job-queue-worker
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: job-queue-worker
+  template:
+    metadata:
+      labels:
+        app: job-queue-worker
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/path: /actuator/prometheus
+        prometheus.io/port: "8080"
+    spec:
+      # Shutdown budget, from innermost to outermost:
+      #   worker drains in-flight jobs for up to 30s (app.worker.shutdown-timeout)
+      #   < Spring lifecycle phase timeout 35s
+      #   < preStop 5s + the rest of this 45s grace period before SIGKILL.
+      # Jobs still running after that keep their lease and are recovered by the lease reaper.
+      terminationGracePeriodSeconds: 45
+      securityContext:
+        runAsNonRoot: true
+      containers:
+        - name: worker
+          image: distributed-job-queue:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: job-queue-config
+            - secretRef:
+                name: job-queue-db
+          env:
+            - name: WORKER_ENABLED
+              value: "true"
+          lifecycle:
+            preStop:
+              exec:
+                command: ["sh", "-c", "sleep 5"]
+          resources:
+            requests: { cpu: 500m, memory: 384Mi }
+            limits: { memory: 512Mi }
+          startupProbe:
+            httpGet: { path: /actuator/health/liveness, port: http }
+            periodSeconds: 5
+            failureThreshold: 30
+          livenessProbe:
+            httpGet: { path: /actuator/health/liveness, port: http }
+            periodSeconds: 10
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+---
+# CPU-based autoscaling works out of the box. Scaling on jobs_queue_lag_seconds (via Prometheus
+# Adapter or KEDA) tracks the real backlog better and is the recommended next step.
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: job-queue-worker
+  namespace: job-queue
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: job-queue-worker
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+---
+# Never evict more than one worker at a time during node drains
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: job-queue-worker
+  namespace: job-queue
+spec:
+  maxUnavailable: 1
+  selector:
+    matchLabels:
+      app: job-queue-worker

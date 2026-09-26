@@ -1,0 +1,59 @@
+# Single-node PostgreSQL for local clusters (kind/minikube). Use a managed database in production.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres
+  namespace: job-queue
+spec:
+  serviceName: postgres
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:16-alpine
+          ports:
+            - containerPort: 5432
+          env:
+            - name: POSTGRES_DB
+              value: jobs_db
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef: { name: job-queue-db, key: DB_USERNAME }
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: job-queue-db, key: DB_PASSWORD }
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "postgres", "-d", "jobs_db"]
+            periodSeconds: 5
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  namespace: job-queue
+spec:
+  selector:
+    app: postgres
+  ports:
+    - port: 5432
