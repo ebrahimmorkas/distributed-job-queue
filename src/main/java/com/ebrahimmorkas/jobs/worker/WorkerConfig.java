@@ -3,6 +3,7 @@ package com.ebrahimmorkas.jobs.worker;
 import com.ebrahimmorkas.jobs.handler.JobHandlerRegistry;
 import com.ebrahimmorkas.jobs.job.JobRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.micrometer.core.instrument.MeterRegistry;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
@@ -25,8 +26,9 @@ public class WorkerConfig {
     @Bean
     @ConditionalOnProperty(name = "app.worker.enabled", havingValue = "true", matchIfMissing = true)
     JobWorker jobWorker(JobRepository jobRepository, JobHandlerRegistry handlerRegistry, RetryPolicy retryPolicy,
-                        ObjectMapper objectMapper, WorkerProperties properties) {
-        return new JobWorker(workerId(), jobRepository, handlerRegistry, retryPolicy, objectMapper, properties);
+                        ObjectMapper objectMapper, WorkerProperties properties, MeterRegistry meterRegistry) {
+        return new JobWorker(workerId(), jobRepository, handlerRegistry, retryPolicy, objectMapper, properties,
+                meterRegistry);
     }
 
     private static String workerId() {

@@ -17,5 +17,6 @@ public record Job(
         String idempotencyKey,
         Instant createdAt,
         Instant updatedAt,
-        Instant completedAt) {
+        Instant completedAt,
+        String completedBy) {
 }

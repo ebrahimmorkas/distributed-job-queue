@@ -17,6 +17,8 @@ app:
     default-max-attempts: 5
   scheduler:
     poll-interval: 5s
+  metrics:
+    refresh-interval: 10s
   worker:
     enabled: ${WORKER_ENABLED:true}
     concurrency: ${WORKER_CONCURRENCY:50}
@@ -31,7 +33,14 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info
+        include: health,info,prometheus,metrics
+  endpoint:
+    health:
+      probes:
+        enabled: true
+  metrics:
+    tags:
+      application: ${spring.application.name}
 
 springdoc:
   swagger-ui:
