@@ -1,5 +1,7 @@
 server:
   port: ${SERVER_PORT:8080}
+  # Finish in-flight HTTP requests on SIGTERM
+  shutdown: graceful
 
 spring:
   application:
@@ -7,6 +9,9 @@ spring:
   threads:
     virtual:
       enabled: true
+  lifecycle:
+    # Must exceed app.worker.shutdown-timeout so the worker can drain its jobs
+    timeout-per-shutdown-phase: 35s
   datasource:
     url: ${DB_URL:jdbc:postgresql://localhost:5432/jobs_db}
     username: ${DB_USERNAME:postgres}

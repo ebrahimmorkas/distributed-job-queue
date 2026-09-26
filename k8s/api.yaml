@@ -1,0 +1,74 @@
+# The API accepts and reports on jobs; it runs no worker, so it scales with request traffic only.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: job-queue-api
+  namespace: job-queue
+  labels:
+    app: job-queue-api
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: job-queue-api
+  template:
+    metadata:
+      labels:
+        app: job-queue-api
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/path: /actuator/prometheus
+        prometheus.io/port: "8080"
+    spec:
+      securityContext:
+        runAsNonRoot: true
+      containers:
+        - name: app
+          image: distributed-job-queue:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: job-queue-config
+            - secretRef:
+                name: job-queue-db
+          env:
+            - name: WORKER_ENABLED
+              value: "false"
+          resources:
+            requests: { cpu: 250m, memory: 384Mi }
+            limits: { memory: 512Mi }
+          startupProbe:
+            httpGet: { path: /actuator/health/liveness, port: http }
+            periodSeconds: 5
+            failureThreshold: 30
+          livenessProbe:
+            httpGet: { path: /actuator/health/liveness, port: http }
+            periodSeconds: 10
+          readinessProbe:
+            httpGet: { path: /actuator/health/readiness, port: http }
+            periodSeconds: 5
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: job-queue-api
+  namespace: job-queue
+spec:
+  selector:
+    app: job-queue-api
+  ports:
+    - name: http
+      port: 80
+      targetPort: http

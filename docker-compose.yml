@@ -1,0 +1,47 @@
+name: job-queue
+
+x-app: &app
+  build: .
+  image: distributed-job-queue
+  mem_limit: 512m
+  environment: &app-env
+    DB_URL: jdbc:postgresql://postgres:5432/jobs_db
+    DB_USERNAME: postgres
+    DB_PASSWORD: postgres
+  depends_on:
+    postgres:
+      condition: service_healthy
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: jobs_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d jobs_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # Accepts and reports on jobs; runs no worker of its own
+  api:
+    <<: *app
+    ports:
+      - "8080:8080"
+    environment:
+      <<: *app-env
+      WORKER_ENABLED: "false"
+
+  # Scale independently of the API: docker compose up -d --scale worker=3
+  worker:
+    <<: *app
+    environment:
+      <<: *app-env
+      WORKER_ENABLED: "true"
+      WORKER_CONCURRENCY: "25"
+      # Workers don't serve traffic; this port is only for health/metrics inside the network
+      SERVER_PORT: "8080"
