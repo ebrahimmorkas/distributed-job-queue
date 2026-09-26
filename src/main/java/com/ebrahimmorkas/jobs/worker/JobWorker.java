@@ -6,6 +6,7 @@ import com.ebrahimmorkas.jobs.handler.JobHandlerRegistry;
 import com.ebrahimmorkas.jobs.job.Job;
 import com.ebrahimmorkas.jobs.job.JobRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.micrometer.core.instrument.MeterRegistry;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.SmartLifecycle;
@@ -36,6 +37,7 @@ public class JobWorker implements SmartLifecycle {
     private final ObjectMapper objectMapper;
     private final WorkerProperties properties;
     private final Semaphore slots;
+    private final WorkerMetrics metrics;
 
     private volatile boolean running;
     private ExecutorService executor;
@@ -44,7 +46,8 @@ public class JobWorker implements SmartLifecycle {
     private final CountDownLatch stopSignal = new CountDownLatch(1);
 
     public JobWorker(String workerId, JobRepository jobRepository, JobHandlerRegistry handlerRegistry,
-                     RetryPolicy retryPolicy, ObjectMapper objectMapper, WorkerProperties properties) {
+                     RetryPolicy retryPolicy, ObjectMapper objectMapper, WorkerProperties properties,
+                     MeterRegistry meterRegistry) {
         this.workerId = workerId;
         this.jobRepository = jobRepository;
         this.handlerRegistry = handlerRegistry;
@@ -52,6 +55,7 @@ public class JobWorker implements SmartLifecycle {
         this.objectMapper = objectMapper;
         this.properties = properties;
         this.slots = new Semaphore(properties.concurrency());
+        this.metrics = new WorkerMetrics(meterRegistry, workerId, slots, properties.concurrency());
     }
 
     @Override
@@ -127,22 +131,26 @@ public class JobWorker implements SmartLifecycle {
             jobRepository.markDead(job.id(), workerId, "No handler registered for type " + job.type());
             return;
         }
+        long started = System.nanoTime();
         try {
             handler.handle(new JobContext(job.id(), job.attempts(), objectMapper.readTree(job.payload())));
+            metrics.recordExecution(job.type(), "succeeded", Duration.ofNanos(System.nanoTime() - started));
             if (!jobRepository.markSucceeded(job.id(), workerId)) {
                 log.warn("Job {} finished but its lease had been lost; another worker owns it now", job.id());
             }
         } catch (Exception e) {
-            onFailure(job, e);
+            onFailure(job, e, Duration.ofNanos(System.nanoTime() - started));
         }
     }
 
-    private void onFailure(Job job, Exception e) {
+    private void onFailure(Job job, Exception e, Duration duration) {
         String error = e.getClass().getSimpleName() + ": " + e.getMessage();
         if (job.attempts() >= job.maxAttempts()) {
+            metrics.recordExecution(job.type(), "dead", duration);
             jobRepository.markDead(job.id(), workerId, error);
             log.warn("Job {} ({}) is DEAD after {} attempts: {}", job.id(), job.type(), job.attempts(), error);
         } else {
+            metrics.recordExecution(job.type(), "retried", duration);
             jobRepository.scheduleRetry(job.id(), workerId, error, retryPolicy.delayBeforeRetry(job.attempts()));
             log.info("Job {} ({}) failed attempt {}/{}, retry scheduled: {}",
                     job.id(), job.type(), job.attempts(), job.maxAttempts(), error);

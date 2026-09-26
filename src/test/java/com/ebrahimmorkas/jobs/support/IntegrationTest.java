@@ -9,8 +9,10 @@ import com.ebrahimmorkas.jobs.worker.RetryPolicy;
 import com.ebrahimmorkas.jobs.worker.WorkerProperties;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.micrometer.core.instrument.MeterRegistry;
 import org.junit.jupiter.api.AfterEach;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.autoconfigure.actuate.observability.AutoConfigureObservability;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
@@ -35,6 +37,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         "app.scheduler.poll-interval=1h"
 })
 @AutoConfigureMockMvc
+@AutoConfigureObservability
 @Import({TestcontainersConfiguration.class, TestJobHandlersConfiguration.class})
 public abstract class IntegrationTest {
 
@@ -49,6 +52,9 @@ public abstract class IntegrationTest {
 
     @Autowired
     private JobHandlerRegistry handlerRegistry;
+
+    @Autowired
+    private MeterRegistry meterRegistry;
 
     private final List<JobWorker> workers = new ArrayList<>();
 
@@ -67,7 +73,7 @@ public abstract class IntegrationTest {
         WorkerProperties properties = new WorkerProperties(true, concurrency, Duration.ofMillis(50),
                 lease, Duration.ofMillis(100), Duration.ofSeconds(1), Duration.ofSeconds(5));
         JobWorker worker = new JobWorker(id, jobRepository, handlerRegistry, RetryPolicy.fixed(Duration.ofMillis(100)),
-                objectMapper, properties);
+                objectMapper, properties, meterRegistry);
         worker.start();
         workers.add(worker);
         return worker;

@@ -18,11 +18,12 @@ public record JobResponse(
         String lastError,
         String idempotencyKey,
         Instant createdAt,
-        Instant completedAt) {
+        Instant completedAt,
+        String completedBy) {
 
     static JobResponse from(Job job) {
         return new JobResponse(job.id(), job.type(), job.payload(), job.status(), job.priority(), job.attempts(),
                 job.maxAttempts(), job.runAt(), job.lastError(), job.idempotencyKey(), job.createdAt(),
-                job.completedAt());
+                job.completedAt(), job.completedBy());
     }
 }

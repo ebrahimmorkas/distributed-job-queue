@@ -123,7 +123,7 @@ public class JobRepository {
      */
     public boolean markSucceeded(long id, String workerId) {
         return jdbc.sql("""
-                        update jobs set status = 'SUCCEEDED', locked_by = null, locked_until = null,
+                        update jobs set status = 'SUCCEEDED', completed_by = locked_by, locked_by = null, locked_until = null,
                                         last_error = null, completed_at = now(), updated_at = now()
                         where id = :id and locked_by = :workerId and status = 'RUNNING'""")
                 .param("id", id).param("workerId", workerId)
@@ -188,7 +188,8 @@ public class JobRepository {
                 rs.getString("idempotency_key"),
                 instant(rs, "created_at"),
                 instant(rs, "updated_at"),
-                instant(rs, "completed_at"));
+                instant(rs, "completed_at"),
+                rs.getString("completed_by"));
     }
 
     private static Instant instant(ResultSet rs, String column) throws SQLException {
