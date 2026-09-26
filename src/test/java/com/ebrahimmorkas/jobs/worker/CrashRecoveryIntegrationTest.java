@@ -11,7 +11,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.simple.JdbcClient;
 
 import java.time.Duration;
-import java.time.Instant;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
@@ -35,7 +34,7 @@ class CrashRecoveryIntegrationTest extends IntegrationTest {
 
     @Test
     void jobHeldByACrashedWorkerIsRecoveredAndCompletedByAnother() {
-        long id = jobRepository.insert(new NewJob(CountingJobHandler.TYPE, "{}", 0, 3, Instant.now(), null)).id();
+        long id = jobRepository.insert(new NewJob(CountingJobHandler.TYPE, "{}", 0, 3, null, null)).id();
         // "crashed-worker" claims the job with a 1s lease and then dies without finishing it
         assertThat(jobRepository.claim("crashed-worker", 1, Duration.ofSeconds(1))).hasSize(1);
 
@@ -52,7 +51,7 @@ class CrashRecoveryIntegrationTest extends IntegrationTest {
 
     @Test
     void expiredLeaseOnTheLastAttemptMakesTheJobDead() {
-        long id = jobRepository.insert(new NewJob(CountingJobHandler.TYPE, "{}", 0, 1, Instant.now(), null)).id();
+        long id = jobRepository.insert(new NewJob(CountingJobHandler.TYPE, "{}", 0, 1, null, null)).id();
         jobRepository.claim("crashed-worker", 1, Duration.ofSeconds(1));
 
         await().atMost(Duration.ofSeconds(10)).until(() -> {
@@ -65,8 +64,9 @@ class CrashRecoveryIntegrationTest extends IntegrationTest {
     @Test
     void liveWorkerRenewsItsLeaseSoLongJobsAreNotStolen() throws Exception {
         long id = jobRepository.insert(new NewJob(CountingJobHandler.TYPE, "{\"sleepMs\": 5000}", 0, 3,
-                Instant.now(), null)).id();
+                null, null)).id();
         startWorker("slow-worker", 1, Duration.ofSeconds(3));
+        awaitStatus(id, JobStatus.RUNNING);
 
         // The job runs for 5s with a 3s lease: without renewal the reaper would steal it
         long deadline = System.currentTimeMillis() + 6_000;

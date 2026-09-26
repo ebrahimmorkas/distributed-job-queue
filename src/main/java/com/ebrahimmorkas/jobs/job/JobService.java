@@ -8,7 +8,6 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
-import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
@@ -19,7 +18,6 @@ public class JobService {
 
     private final JobRepository jobRepository;
     private final JobHandlerRegistry handlerRegistry;
-    private final Clock clock;
 
     @Value("${app.jobs.default-max-attempts:5}")
     private int defaultMaxAttempts;
@@ -33,7 +31,7 @@ public class JobService {
         return jobRepository.insert(new NewJob(type, payload,
                 priority == null ? 0 : priority,
                 maxAttempts == null ? defaultMaxAttempts : maxAttempts,
-                runAt == null ? clock.instant() : runAt,
+                runAt,
                 idempotencyKey));
     }
 

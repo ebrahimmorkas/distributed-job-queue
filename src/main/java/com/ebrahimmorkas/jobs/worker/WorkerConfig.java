@@ -10,7 +10,6 @@ import org.springframework.context.annotation.Configuration;
 
 import java.net.InetAddress;
 import java.net.UnknownHostException;
-import java.time.Clock;
 import java.util.UUID;
 
 @Configuration(proxyBeanMethods = false)
@@ -26,8 +25,8 @@ public class WorkerConfig {
     @Bean
     @ConditionalOnProperty(name = "app.worker.enabled", havingValue = "true", matchIfMissing = true)
     JobWorker jobWorker(JobRepository jobRepository, JobHandlerRegistry handlerRegistry, RetryPolicy retryPolicy,
-                        ObjectMapper objectMapper, WorkerProperties properties, Clock clock) {
-        return new JobWorker(workerId(), jobRepository, handlerRegistry, retryPolicy, objectMapper, properties, clock);
+                        ObjectMapper objectMapper, WorkerProperties properties) {
+        return new JobWorker(workerId(), jobRepository, handlerRegistry, retryPolicy, objectMapper, properties);
     }
 
     private static String workerId() {

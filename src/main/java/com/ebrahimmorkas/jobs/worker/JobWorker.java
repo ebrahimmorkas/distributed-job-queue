@@ -10,7 +10,6 @@ import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.SmartLifecycle;
 
-import java.time.Clock;
 import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
@@ -36,7 +35,6 @@ public class JobWorker implements SmartLifecycle {
     private final RetryPolicy retryPolicy;
     private final ObjectMapper objectMapper;
     private final WorkerProperties properties;
-    private final Clock clock;
     private final Semaphore slots;
 
     private volatile boolean running;
@@ -46,14 +44,13 @@ public class JobWorker implements SmartLifecycle {
     private final CountDownLatch stopSignal = new CountDownLatch(1);
 
     public JobWorker(String workerId, JobRepository jobRepository, JobHandlerRegistry handlerRegistry,
-                     RetryPolicy retryPolicy, ObjectMapper objectMapper, WorkerProperties properties, Clock clock) {
+                     RetryPolicy retryPolicy, ObjectMapper objectMapper, WorkerProperties properties) {
         this.workerId = workerId;
         this.jobRepository = jobRepository;
         this.handlerRegistry = handlerRegistry;
         this.retryPolicy = retryPolicy;
         this.objectMapper = objectMapper;
         this.properties = properties;
-        this.clock = clock;
         this.slots = new Semaphore(properties.concurrency());
     }
 
@@ -146,8 +143,7 @@ public class JobWorker implements SmartLifecycle {
             jobRepository.markDead(job.id(), workerId, error);
             log.warn("Job {} ({}) is DEAD after {} attempts: {}", job.id(), job.type(), job.attempts(), error);
         } else {
-            jobRepository.scheduleRetry(job.id(), workerId, error,
-                    clock.instant().plus(retryPolicy.delayBeforeRetry(job.attempts())));
+            jobRepository.scheduleRetry(job.id(), workerId, error, retryPolicy.delayBeforeRetry(job.attempts()));
             log.info("Job {} ({}) failed attempt {}/{}, retry scheduled: {}",
                     job.id(), job.type(), job.attempts(), job.maxAttempts(), error);
         }

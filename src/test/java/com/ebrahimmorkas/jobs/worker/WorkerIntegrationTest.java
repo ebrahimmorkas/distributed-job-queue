@@ -10,7 +10,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.simple.JdbcClient;
 
 import java.time.Duration;
-import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -71,7 +70,7 @@ class WorkerIntegrationTest extends IntegrationTest {
         List<Long> ids = new ArrayList<>();
         for (int i = 0; i < 300; i++) {
             ids.add(jobRepository.insert(new NewJob(CountingJobHandler.TYPE, "{\"sleepMs\": 5}", 0, 3,
-                    Instant.now(), null)).id());
+                    null, null)).id());
         }
 
         startWorker("worker-a", 10);
@@ -88,10 +87,10 @@ class WorkerIntegrationTest extends IntegrationTest {
     void higherPriorityAndDueJobsAreClaimedFirst() {
         // Push everything else out of the way so the ordering assertion is unambiguous
         jdbc.sql("update jobs set status = 'CANCELLED' where status = 'QUEUED'").update();
-        Instant now = Instant.now();
-        jobRepository.insert(new NewJob(CountingJobHandler.TYPE, "{}", 1, 3, now, null));
-        long urgent = jobRepository.insert(new NewJob(CountingJobHandler.TYPE, "{}", 10, 3, now, null)).id();
-        jobRepository.insert(new NewJob(CountingJobHandler.TYPE, "{}", 50, 3, now.plusSeconds(3600), null));
+        jobRepository.insert(new NewJob(CountingJobHandler.TYPE, "{}", 1, 3, null, null));
+        long urgent = jobRepository.insert(new NewJob(CountingJobHandler.TYPE, "{}", 10, 3, null, null)).id();
+        long future = jobRepository.insert(new NewJob(CountingJobHandler.TYPE, "{}", 50, 3, null, null)).id();
+        jdbc.sql("update jobs set run_at = now() + interval '1 hour' where id = :id").param("id", future).update();
 
         List<Job> claimed = jobRepository.claim("test", 1, Duration.ofMinutes(1));
 
@@ -103,7 +102,7 @@ class WorkerIntegrationTest extends IntegrationTest {
     @Test
     void staleWorkerCannotCompleteAJobItNoLongerOwns() {
         jdbc.sql("update jobs set status = 'CANCELLED' where status = 'QUEUED'").update();
-        long id = jobRepository.insert(new NewJob(CountingJobHandler.TYPE, "{}", 0, 3, Instant.now(), null)).id();
+        long id = jobRepository.insert(new NewJob(CountingJobHandler.TYPE, "{}", 0, 3, null, null)).id();
         jobRepository.claim("old-worker", 1, Duration.ofMinutes(1));
         // Simulate the lease having been reassigned to another worker
         jdbc.sql("update jobs set locked_by = 'new-worker' where id = :id").param("id", id).update();
