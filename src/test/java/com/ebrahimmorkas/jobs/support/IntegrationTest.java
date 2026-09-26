@@ -17,7 +17,6 @@ import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 
-import java.time.Clock;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
@@ -30,7 +29,11 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * Full application against a real PostgreSQL. The built-in worker is disabled so tests control
  * exactly which workers run (and how many compete) via {@link #startWorker}.
  */
-@SpringBootTest(properties = {"app.worker.enabled=false", "app.worker.reaper-interval=1h"})
+@SpringBootTest(properties = {
+        "app.worker.enabled=false",
+        "app.worker.reaper-interval=1h",
+        "app.scheduler.poll-interval=1h"
+})
 @AutoConfigureMockMvc
 @Import({TestcontainersConfiguration.class, TestJobHandlersConfiguration.class})
 public abstract class IntegrationTest {
@@ -46,9 +49,6 @@ public abstract class IntegrationTest {
 
     @Autowired
     private JobHandlerRegistry handlerRegistry;
-
-    @Autowired
-    private Clock clock;
 
     private final List<JobWorker> workers = new ArrayList<>();
 
@@ -67,7 +67,7 @@ public abstract class IntegrationTest {
         WorkerProperties properties = new WorkerProperties(true, concurrency, Duration.ofMillis(50),
                 lease, Duration.ofMillis(100), Duration.ofSeconds(1), Duration.ofSeconds(5));
         JobWorker worker = new JobWorker(id, jobRepository, handlerRegistry, RetryPolicy.fixed(Duration.ofMillis(100)),
-                objectMapper, properties, clock);
+                objectMapper, properties);
         worker.start();
         workers.add(worker);
         return worker;

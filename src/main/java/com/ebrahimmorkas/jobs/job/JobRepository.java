@@ -31,14 +31,14 @@ public class JobRepository {
     public Job insert(NewJob job) {
         Optional<Job> inserted = jdbc.sql("""
                         insert into jobs (type, payload, status, priority, max_attempts, run_at, idempotency_key)
-                        values (:type, :payload::jsonb, 'QUEUED', :priority, :maxAttempts, :runAt, :idempotencyKey)
+                        values (:type, :payload::jsonb, 'QUEUED', :priority, :maxAttempts, coalesce(:runAt, now()), :idempotencyKey)
                         on conflict (idempotency_key) do nothing
                         returning *""")
                 .param("type", job.type())
                 .param("payload", job.payload())
                 .param("priority", job.priority())
                 .param("maxAttempts", job.maxAttempts())
-                .param("runAt", Timestamp.from(job.runAt()))
+                .param("runAt", job.runAt() == null ? null : Timestamp.from(job.runAt()))
                 .param("idempotencyKey", job.idempotencyKey())
                 .query(JOB_ROW_MAPPER)
                 .optional();
@@ -130,13 +130,14 @@ public class JobRepository {
                 .update() == 1;
     }
 
-    public boolean scheduleRetry(long id, String workerId, String error, Instant runAt) {
+    /** Re-queues the job to run after {@code delay}, measured on the database clock. */
+    public boolean scheduleRetry(long id, String workerId, String error, Duration delay) {
         return jdbc.sql("""
                         update jobs set status = 'QUEUED', locked_by = null, locked_until = null,
-                                        last_error = :error, run_at = :runAt, updated_at = now()
+                                        last_error = :error, run_at = now() + make_interval(secs => :delaySeconds), updated_at = now()
                         where id = :id and locked_by = :workerId and status = 'RUNNING'""")
                 .param("id", id).param("workerId", workerId).param("error", error)
-                .param("runAt", Timestamp.from(runAt))
+                .param("delaySeconds", delay.toMillis() / 1000.0)
                 .update() == 1;
     }
 
